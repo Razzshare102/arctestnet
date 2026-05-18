@@ -3,7 +3,7 @@
  */
 
 import Link from 'next/link'
-import { Twitter, ExternalLink, Zap, Github } from 'lucide-react'
+import { Twitter, ExternalLink, Zap } from 'lucide-react'
 
 const footerLinks = [
   { href: '/swap',      label: 'Swap' },

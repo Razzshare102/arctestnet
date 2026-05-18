@@ -1,9 +1,9 @@
+/* Google Fonts — must come BEFORE @tailwind directives */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-/* ── Google Fonts ──────────────────────────────────────────────────────────── */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 
 /* ── Base resets ───────────────────────────────────────────────────────────── */
 * {
@@ -12,7 +12,8 @@
   margin: 0;
 }
 
-html, body {
+html,
+body {
   max-width: 100vw;
   overflow-x: hidden;
   scroll-behavior: smooth;
@@ -20,7 +21,7 @@ html, body {
 
 body {
   background-color: #050508;
-  color: #F9FAFB;
+  color: #f9fafb;
   font-family: 'Inter', system-ui, sans-serif;
 }
 
@@ -30,14 +31,14 @@ body {
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #0A0B0F;
+  background: #0a0b0f;
 }
 ::-webkit-scrollbar-thumb {
-  background: #1E2130;
+  background: #1e2130;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #00D4FF40;
+  background: rgba(0, 212, 255, 0.25);
 }
 
 /* ── Glassmorphism card ────────────────────────────────────────────────────── */
@@ -48,16 +49,6 @@ body {
 
   .glass-card-hover {
     @apply glass-card transition-all duration-300 hover:border-arc-blue/30 hover:shadow-card-hover;
-  }
-
-  .neon-text-blue {
-    @apply text-arc-blue;
-    text-shadow: 0 0 20px rgba(0,212,255,0.5);
-  }
-
-  .neon-text-purple {
-    @apply text-arc-purple;
-    text-shadow: 0 0 20px rgba(139,92,246,0.5);
   }
 
   .gradient-text {
@@ -120,7 +111,7 @@ body {
   inset: -1px;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(135deg, #00D4FF, #8B5CF6, #EC4899);
+  background: linear-gradient(135deg, #00d4ff, #8b5cf6, #ec4899);
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
@@ -129,8 +120,13 @@ body {
 
 /* ── Animated swap arrow ───────────────────────────────────────────────────── */
 @keyframes swap-pulse {
-  0%, 100% { transform: scale(1) rotate(0deg); }
-  50% { transform: scale(1.1) rotate(180deg); }
+  0%,
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+  50% {
+    transform: scale(1.1) rotate(180deg);
+  }
 }
 
 .swap-arrow-btn:hover svg {
@@ -139,12 +135,16 @@ body {
 
 /* ── Loading shimmer ───────────────────────────────────────────────────────── */
 @keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
 }
 
 .skeleton {
-  background: linear-gradient(90deg, #0F1117 25%, #1E2130 50%, #0F1117 75%);
+  background: linear-gradient(90deg, #0f1117 25%, #1e2130 50%, #0f1117 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
   border-radius: 0.5rem;
@@ -152,8 +152,13 @@ body {
 
 /* ── Neon glow pulse ───────────────────────────────────────────────────────── */
 @keyframes neon-pulse {
-  0%, 100% { box-shadow: 0 0 10px rgba(0,212,255,0.3); }
-  50% { box-shadow: 0 0 30px rgba(0,212,255,0.6), 0 0 60px rgba(0,212,255,0.2); }
+  0%,
+  100% {
+    box-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(0, 212, 255, 0.6), 0 0 60px rgba(0, 212, 255, 0.2);
+  }
 }
 
 .neon-pulse {

@@ -2,16 +2,16 @@
 
 /**
  * Swap page — ARC App Kit powered same-chain token swap
- * Uses @circle-fin/app-kit to swap stablecoins on ARC Testnet
+ * Uses @circle-fin/app-kit (optional) to swap stablecoins on ARC Testnet.
+ * Falls back to stub estimates when SDK is not installed.
  */
 
 import { useState, useCallback } from 'react'
-import { useAccount, useBalance, useWalletClient, usePublicClient } from 'wagmi'
+import { useAccount, useBalance, useWalletClient } from 'wagmi'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   ArrowUpDown,
   Settings,
-  RefreshCw,
   History,
   ExternalLink,
   Info,
@@ -27,22 +27,20 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import {
   ARC_TOKENS,
   type TokenSymbol,
-  getAppKit,
-  buildSwapParams,
+  estimateSwap,
+  executeSwap,
   txUrl,
 } from '@/lib/arcKit'
 import {
-  formatNumber,
   isValidAmount,
   getSwapHistory,
   saveSwapRecord,
+  updateSwapRecord,
   timeAgo,
-  shortenAddress,
   type SwapRecord,
 } from '@/lib/utils'
 import { arcTestnet } from '@/lib/wagmi'
 
-// ── Slippage presets (basis points) ───────────────────────────────────────────
 const SLIPPAGE_PRESETS = [
   { label: '0.1%', bps: 10 },
   { label: '0.5%', bps: 50 },
@@ -53,38 +51,37 @@ const SLIPPAGE_PRESETS = [
 export default function SwapPage() {
   const { address, isConnected } = useAccount()
   const { data: walletClient } = useWalletClient()
-  const publicClient = usePublicClient()
 
-  // Token state
+  // ── Token state ──────────────────────────────────────────────────────────
   const [fromToken, setFromToken] = useState<TokenSymbol>('USDC')
-  const [toToken, setToToken] = useState<TokenSymbol>('EURC')
+  const [toToken, setToToken]     = useState<TokenSymbol>('EURC')
   const [fromAmount, setFromAmount] = useState('')
-  const [toAmount, setToAmount] = useState('')
+  const [toAmount, setToAmount]     = useState('')
 
-  // Settings
+  // ── Settings ─────────────────────────────────────────────────────────────
   const [showSettings, setShowSettings] = useState(false)
-  const [slippageBps, setSlippageBps] = useState(50)
+  const [slippageBps, setSlippageBps]   = useState(50)
   const [customSlippage, setCustomSlippage] = useState('')
 
-  // TX state
-  const [txStatus, setTxStatus] = useState<TxStatus>('idle')
-  const [txHash, setTxHash] = useState<string | undefined>()
+  // ── TX state ─────────────────────────────────────────────────────────────
+  const [txStatus, setTxStatus]   = useState<TxStatus>('idle')
+  const [txHash, setTxHash]       = useState<string | undefined>()
   const [txModalOpen, setTxModalOpen] = useState(false)
-  const [estimating, setEstimating] = useState(false)
-  const [swapping, setSwapping] = useState(false)
+  const [estimating, setEstimating]   = useState(false)
+  const [swapping, setSwapping]       = useState(false)
   const [estimatedGas, setEstimatedGas] = useState<string | null>(null)
+  const [txError, setTxError] = useState<string | undefined>()
 
-  // History
+  // ── History ───────────────────────────────────────────────────────────────
   const [history, setHistory] = useState<SwapRecord[]>(() => getSwapHistory())
-  const [showHistory, setShowHistory] = useState(false)
 
-  // Balance
+  // ── Balance ───────────────────────────────────────────────────────────────
   const { data: fromBalance, isLoading: balanceLoading } = useBalance({
     address,
     chainId: arcTestnet.id,
   })
 
-  // ── Swap tokens direction ──────────────────────────────────────────────────
+  // ── Flip direction ────────────────────────────────────────────────────────
   const handleFlip = useCallback(() => {
     setFromToken(toToken)
     setToToken(fromToken)
@@ -93,43 +90,37 @@ export default function SwapPage() {
     setEstimatedGas(null)
   }, [fromToken, toToken, fromAmount, toAmount])
 
-  // ── Estimate swap output ───────────────────────────────────────────────────
+  // ── Estimate ──────────────────────────────────────────────────────────────
   const handleEstimate = useCallback(async () => {
     if (!isValidAmount(fromAmount) || !address) return
     setEstimating(true)
     setEstimatedGas(null)
     try {
-      const kit = getAppKit()
-      const params = buildSwapParams({
+      const estimate = await estimateSwap({
         fromToken,
         toToken,
         amount: fromAmount,
         walletAddress: address,
-        slippageBps,
+        slippageBps: customSlippage ? parseInt(customSlippage) * 10 : slippageBps,
       })
-      // @ts-ignore — estimateSwap types vary by SDK version
-      const estimate = await kit.estimateSwap(params)
-      if (estimate) {
-        const destAmount = estimate.destinationAmount || estimate.toAmount || '~'
-        setToAmount(typeof destAmount === 'string' ? parseFloat(destAmount).toFixed(6) : destAmount)
-        setEstimatedGas(estimate.gasFee || estimate.estimatedGas || '~0.001 USDC')
-      }
+      setToAmount(estimate.toAmount)
+      setEstimatedGas(estimate.gasFee)
     } catch (err: any) {
-      // Fallback: use 1:1 estimate (demo mode without valid API key)
-      const rate = fromToken === 'USDC' && toToken === 'EURC' ? 0.92 : 1.0
-      setToAmount((parseFloat(fromAmount) * rate).toFixed(6))
-      setEstimatedGas('~0.001 USDC')
+      // Silent fallback — stub always succeeds, this path is rarely hit
+      console.warn('Estimate error:', err?.message)
     } finally {
       setEstimating(false)
     }
-  }, [fromAmount, fromToken, toToken, address, slippageBps])
+  }, [fromAmount, fromToken, toToken, address, slippageBps, customSlippage])
 
-  // ── Execute swap ───────────────────────────────────────────────────────────
+  // ── Execute swap ──────────────────────────────────────────────────────────
   const handleSwap = useCallback(async () => {
-    if (!isConnected || !address || !isValidAmount(fromAmount)) return
+    if (!isConnected || !address || !isValidAmount(fromAmount) || !walletClient) return
+
     setSwapping(true)
     setTxStatus('pending')
     setTxHash(undefined)
+    setTxError(undefined)
     setTxModalOpen(true)
 
     const recordId = Date.now().toString()
@@ -145,41 +136,37 @@ export default function SwapPage() {
     })
 
     try {
-      const kit = getAppKit()
-      const params = buildSwapParams({
-        fromToken,
-        toToken,
-        amount: fromAmount,
-        walletAddress: address,
-        slippageBps,
-      })
-      // @ts-ignore
-      const result = await kit.swap(params)
-      const hash = result?.transactionHash || result?.txHash || `0x${Math.random().toString(16).slice(2)}demo`
-
-      setTxHash(hash)
-      setTxStatus('success')
-
-      // Update local history
-      const updatedHistory = getSwapHistory().map((r) =>
-        r.id === recordId ? { ...r, txHash: hash, status: 'success' as const } : r
+      const result = await executeSwap(
+        {
+          fromToken,
+          toToken,
+          amount: fromAmount,
+          walletAddress: address,
+          slippageBps: customSlippage ? parseInt(customSlippage) * 10 : slippageBps,
+        },
+        walletClient,
       )
-      localStorage.setItem('shareswap_history', JSON.stringify(updatedHistory))
-      setHistory(updatedHistory)
 
+      setTxHash(result.transactionHash)
+      setTxStatus('success')
+      updateSwapRecord(recordId, { txHash: result.transactionHash, status: 'success' })
+      setHistory(getSwapHistory())
       toast.success(`Swapped ${fromAmount} ${fromToken} → ${toToken}!`)
       setFromAmount('')
       setToAmount('')
     } catch (err: any) {
       setTxStatus('error')
-      const errMsg = err?.message || 'Swap failed. Check wallet & balance.'
-      toast.error(errMsg.slice(0, 100))
+      updateSwapRecord(recordId, { status: 'failed' })
+      setHistory(getSwapHistory())
+      const msg: string = err?.shortMessage ?? err?.message ?? 'Swap failed'
+      setTxError(msg.slice(0, 150))
+      toast.error(msg.slice(0, 80))
     } finally {
       setSwapping(false)
     }
-  }, [isConnected, address, fromAmount, fromToken, toToken, toAmount, slippageBps])
+  }, [isConnected, address, fromAmount, fromToken, toToken, toAmount, slippageBps, customSlippage, walletClient])
 
-  // ── Not connected ──────────────────────────────────────────────────────────
+  // ── Gate: not connected ───────────────────────────────────────────────────
   if (!isConnected) {
     return (
       <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-10">
@@ -191,50 +178,50 @@ export default function SwapPage() {
     )
   }
 
-  const effectiveSlippage = customSlippage ? parseInt(customSlippage) * 10 : slippageBps
+  const effectiveSlippageBps = customSlippage
+    ? parseInt(customSlippage) * 10
+    : slippageBps
 
   return (
     <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-10">
       <div className="grid lg:grid-cols-[1fr_380px] gap-6 items-start">
 
-        {/* ── Left: main swap card ─────────────────────────────────────── */}
+        {/* ── Left: swap card ───────────────────────────────────────────── */}
         <div className="space-y-4">
-          {/* Header */}
+
+          {/* Page header */}
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold text-white">Token Swap</h1>
               <p className="text-arc-muted text-sm mt-0.5">
                 Powered by{' '}
-                <a href="https://docs.arc.io" target="_blank" rel="noopener noreferrer" className="text-arc-blue hover:underline">
+                <a
+                  href="https://docs.arc.io/app-kit/quickstarts/swap-tokens-same-chain"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-arc-blue hover:underline"
+                >
                   ARC App Kit
                 </a>
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setShowHistory(!showHistory)}
-                className={`btn-ghost p-2 rounded-xl ${showHistory ? 'text-arc-blue bg-arc-blue/10' : ''}`}
-                title="Swap history"
-              >
-                <History className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => setShowSettings(!showSettings)}
-                className={`btn-ghost p-2 rounded-xl ${showSettings ? 'text-arc-blue bg-arc-blue/10' : ''}`}
-                title="Settings"
-              >
-                <Settings className="h-4 w-4" />
-              </button>
-            </div>
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className={`btn-ghost p-2 rounded-xl ${showSettings ? 'text-arc-blue bg-arc-blue/10' : ''}`}
+              title="Slippage settings"
+            >
+              <Settings className="h-4 w-4" />
+            </button>
           </div>
 
-          {/* Settings panel */}
+          {/* Slippage settings panel */}
           <AnimatePresence>
             {showSettings && (
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.2 }}
               >
                 <GlassCard animate={false} className="p-4">
                   <div className="text-sm font-medium text-white mb-3">Slippage Tolerance</div>
@@ -246,13 +233,14 @@ export default function SwapPage() {
                         className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-all ${
                           slippageBps === p.bps && !customSlippage
                             ? 'bg-arc-blue/10 border-arc-blue/40 text-arc-blue'
-                            : 'border-arc-border text-arc-muted hover:border-arc-blue/30'
+                            : 'border-arc-border text-arc-muted hover:border-arc-blue/30 hover:text-white'
                         }`}
                       >
                         {p.label}
                       </button>
                     ))}
-                    <div className="flex items-center gap-1.5 border border-arc-border rounded-lg px-2 py-1.5 bg-arc-dark">
+                    {/* Custom slippage input */}
+                    <div className="flex items-center gap-1.5 border border-arc-border rounded-lg px-2 py-1.5 bg-arc-dark focus-within:border-arc-blue/50">
                       <input
                         value={customSlippage}
                         onChange={(e) => setCustomSlippage(e.target.value.replace(/[^0-9.]/g, ''))}
@@ -263,26 +251,28 @@ export default function SwapPage() {
                     </div>
                   </div>
                   <p className="text-xs text-arc-muted mt-2 flex items-center gap-1">
-                    <Info className="h-3 w-3" />
-                    Currently: {customSlippage ? `${customSlippage}%` : `${slippageBps / 100}%`} ({effectiveSlippage} bps)
+                    <Info className="h-3 w-3 shrink-0" />
+                    Active: {customSlippage ? `${customSlippage}%` : `${slippageBps / 100}%`}
+                    {' '}({effectiveSlippageBps} bps)
                   </p>
                 </GlassCard>
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* Swap card */}
+          {/* Main swap card */}
           <GlassCard animate={false} className="p-5">
+
             {/* FROM */}
-            <div className="rounded-xl border border-arc-border bg-arc-dark p-4 space-y-3">
+            <div className="rounded-xl border border-arc-border bg-arc-dark p-4 space-y-2">
               <div className="flex items-center justify-between text-xs text-arc-muted">
                 <span>From</span>
                 <span>
-                  {balanceLoading ? (
-                    <Skeleton className="h-3 w-20 inline-block" />
-                  ) : (
-                    fromBalance && `Balance: ${parseFloat(fromBalance.formatted).toFixed(4)} ${fromBalance.symbol}`
-                  )}
+                  {balanceLoading
+                    ? <Skeleton className="h-3 w-24 inline-block" />
+                    : fromBalance
+                      ? `Balance: ${parseFloat(fromBalance.formatted).toFixed(4)} ${fromBalance.symbol}`
+                      : null}
                 </span>
               </div>
               <div className="flex items-center gap-3">
@@ -297,7 +287,7 @@ export default function SwapPage() {
                   onBlur={handleEstimate}
                   placeholder="0.00"
                   min="0"
-                  className="flex-1 bg-transparent text-2xl font-semibold text-white focus:outline-none placeholder-arc-muted/40"
+                  className="flex-1 bg-transparent text-2xl font-semibold text-white focus:outline-none placeholder-arc-muted/40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 />
                 <TokenSelect
                   value={fromToken}
@@ -305,47 +295,45 @@ export default function SwapPage() {
                   exclude={toToken}
                 />
               </div>
-              {/* Max button */}
-              {fromBalance && (
+              {/* MAX button */}
+              {fromBalance && parseFloat(fromBalance.formatted) > 0 && (
                 <button
                   onClick={() => {
-                    const max = parseFloat(fromBalance.formatted).toFixed(4)
-                    setFromAmount(max)
+                    setFromAmount(parseFloat(fromBalance.formatted).toFixed(4))
                     setToAmount('')
                     setEstimatedGas(null)
                   }}
-                  className="text-xs text-arc-blue hover:text-white transition-colors"
+                  className="text-xs text-arc-blue hover:text-white transition-colors font-medium"
                 >
                   MAX
                 </button>
               )}
             </div>
 
-            {/* Flip button */}
+            {/* Flip arrow */}
             <div className="flex justify-center my-2">
               <button
                 onClick={handleFlip}
-                className="swap-arrow-btn h-10 w-10 rounded-xl border border-arc-border bg-arc-dark hover:border-arc-blue/40 hover:bg-arc-blue/5 flex items-center justify-center transition-all duration-200"
+                className="swap-arrow-btn h-10 w-10 rounded-xl border border-arc-border bg-arc-dark hover:border-arc-blue/40 hover:bg-arc-blue/5 flex items-center justify-center transition-all duration-200 group"
               >
-                <ArrowUpDown className="h-4 w-4 text-arc-muted" />
+                <ArrowUpDown className="h-4 w-4 text-arc-muted group-hover:text-arc-blue transition-colors" />
               </button>
             </div>
 
             {/* TO */}
-            <div className="rounded-xl border border-arc-border bg-arc-dark p-4 space-y-3">
+            <div className="rounded-xl border border-arc-border bg-arc-dark p-4 space-y-2">
               <div className="flex items-center justify-between text-xs text-arc-muted">
-                <span>To</span>
-                {estimating && <Loader2 className="h-3 w-3 animate-spin" />}
+                <span>To (estimated)</span>
+                {estimating && <Loader2 className="h-3 w-3 animate-spin text-arc-blue" />}
               </div>
               <div className="flex items-center gap-3">
-                <div className="flex-1 text-2xl font-semibold text-white">
-                  {estimating ? (
-                    <Skeleton className="h-8 w-32" />
-                  ) : (
-                    <span className={toAmount ? 'text-white' : 'text-arc-muted/40'}>
-                      {toAmount || '0.00'}
-                    </span>
-                  )}
+                <div className="flex-1 text-2xl font-semibold">
+                  {estimating
+                    ? <Skeleton className="h-8 w-32" />
+                    : <span className={toAmount ? 'text-white' : 'text-arc-muted/40'}>
+                        {toAmount || '0.00'}
+                      </span>
+                  }
                 </div>
                 <TokenSelect
                   value={toToken}
@@ -355,41 +343,47 @@ export default function SwapPage() {
               </div>
             </div>
 
-            {/* Gas estimate */}
-            {estimatedGas && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="flex items-center justify-between text-xs text-arc-muted mt-3 px-1"
-              >
-                <span className="flex items-center gap-1">
-                  <Zap className="h-3 w-3 text-arc-blue" />
-                  Estimated gas
-                </span>
-                <span className="font-mono text-white">{estimatedGas}</span>
-              </motion.div>
-            )}
-
-            {/* Rate display */}
-            {fromAmount && toAmount && !estimating && (
-              <div className="flex items-center justify-between text-xs text-arc-muted mt-2 px-1">
-                <span>Rate</span>
-                <span className="font-mono text-white">
-                  1 {fromToken} ≈ {(parseFloat(toAmount) / parseFloat(fromAmount)).toFixed(6)} {toToken}
-                </span>
-              </div>
-            )}
+            {/* Gas + rate row */}
+            <AnimatePresence>
+              {(estimatedGas || (fromAmount && toAmount && !estimating)) && (
+                <motion.div
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="mt-3 px-1 space-y-1"
+                >
+                  {estimatedGas && (
+                    <div className="flex items-center justify-between text-xs text-arc-muted">
+                      <span className="flex items-center gap-1">
+                        <Zap className="h-3 w-3 text-arc-blue" />
+                        Est. gas fee
+                      </span>
+                      <span className="font-mono text-white">{estimatedGas}</span>
+                    </div>
+                  )}
+                  {fromAmount && toAmount && !estimating && (
+                    <div className="flex items-center justify-between text-xs text-arc-muted">
+                      <span>Rate</span>
+                      <span className="font-mono text-white">
+                        1 {fromToken} ≈{' '}
+                        {(parseFloat(toAmount) / parseFloat(fromAmount)).toFixed(6)} {toToken}
+                      </span>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* Swap button */}
             <button
               onClick={handleSwap}
-              disabled={swapping || !isValidAmount(fromAmount) || estimating}
+              disabled={swapping || !isValidAmount(fromAmount) || estimating || !walletClient}
               className="btn-primary w-full mt-4 flex items-center justify-center gap-2"
             >
               {swapping ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Swapping...
+                  Swapping…
                 </>
               ) : (
                 <>
@@ -399,15 +393,16 @@ export default function SwapPage() {
               )}
             </button>
 
-            {/* Slippage info */}
             <p className="text-center text-xs text-arc-muted mt-2">
-              Slippage: {customSlippage ? `${customSlippage}%` : `${slippageBps / 100}%`} · ARC fee: 0.02%
+              Slippage: {effectiveSlippageBps / 100}% · ARC protocol fee: 0.02%
             </p>
           </GlassCard>
         </div>
 
-        {/* ── Right: history panel ─────────────────────────────────────── */}
+        {/* ── Right: history + token list ───────────────────────────────── */}
         <div className="space-y-4">
+
+          {/* Recent swaps */}
           <GlassCard animate={false} className="p-5">
             <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
               <History className="h-4 w-4 text-arc-blue" />
@@ -415,7 +410,7 @@ export default function SwapPage() {
             </h3>
             {history.length === 0 ? (
               <div className="py-8 text-center">
-                <ArrowUpDown className="h-8 w-8 text-arc-muted/30 mx-auto mb-2" />
+                <ArrowUpDown className="h-8 w-8 text-arc-muted/20 mx-auto mb-2" />
                 <p className="text-sm text-arc-muted">No swaps yet</p>
               </div>
             ) : (
@@ -423,20 +418,21 @@ export default function SwapPage() {
                 {history.slice(0, 8).map((swap) => (
                   <div
                     key={swap.id}
-                    className="flex items-center justify-between p-3 rounded-xl bg-arc-dark border border-arc-border hover:border-arc-border/60 transition-colors"
+                    className="flex items-center justify-between p-3 rounded-xl bg-arc-dark border border-arc-border"
                   >
-                    <div>
-                      <div className="text-sm font-medium text-white">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-white truncate">
                         {swap.fromAmount} {swap.fromToken}
                         <span className="text-arc-muted"> → </span>
                         {swap.toToken}
                       </div>
                       <div className="text-xs text-arc-muted">{timeAgo(swap.timestamp)}</div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 shrink-0 ml-2">
                       <span className={`badge ${
-                        swap.status === 'success' ? 'badge-green' :
-                        swap.status === 'failed' ? 'badge-red' : 'badge-blue'
+                        swap.status === 'success' ? 'badge-green'
+                        : swap.status === 'failed'  ? 'badge-red'
+                        : 'badge-blue'
                       }`}>
                         {swap.status}
                       </span>
@@ -446,6 +442,7 @@ export default function SwapPage() {
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-arc-muted hover:text-arc-blue transition-colors"
+                          title="View on ArcScan"
                         >
                           <ExternalLink className="h-3.5 w-3.5" />
                         </a>
@@ -460,17 +457,17 @@ export default function SwapPage() {
           {/* Supported tokens */}
           <GlassCard animate={false} className="p-5">
             <h3 className="text-sm font-semibold text-white mb-3">Supported Tokens</h3>
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               {Object.entries(ARC_TOKENS).map(([sym, token]) => (
-                <div key={sym} className="flex items-center gap-2.5 text-sm">
+                <div key={sym} className="flex items-center gap-2.5">
                   <div
-                    className="h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold"
+                    className="h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
                     style={{ backgroundColor: token.color + '25', color: token.color }}
                   >
-                    {token.symbol.slice(0, 2)}
+                    {sym.slice(0, 2)}
                   </div>
                   <div>
-                    <div className="font-medium text-white">{token.symbol}</div>
+                    <div className="text-sm font-medium text-white leading-none">{sym}</div>
                     <div className="text-xs text-arc-muted">{token.name}</div>
                   </div>
                 </div>
@@ -480,19 +477,21 @@ export default function SwapPage() {
         </div>
       </div>
 
-      {/* TX Progress Modal */}
+      {/* Transaction progress modal */}
       <TxModal
         isOpen={txModalOpen}
-        onClose={() => setTxModalOpen(false)}
+        onClose={() => { setTxModalOpen(false); setTxStatus('idle') }}
         status={txStatus}
         txHash={txHash}
         title="Token Swap"
-        description={txStatus === 'pending'
-          ? `Swapping ${fromAmount} ${fromToken} to ${toToken}...`
-          : txStatus === 'success'
-          ? `Successfully swapped ${fromAmount} ${fromToken} → ${toToken}`
-          : undefined
+        description={
+          txStatus === 'pending'
+            ? `Swapping ${fromAmount} ${fromToken} → ${toToken}…`
+            : txStatus === 'success'
+            ? `Successfully swapped ${fromAmount} ${fromToken} → ${toToken}`
+            : undefined
         }
+        errorMessage={txError}
       />
     </div>
   )
