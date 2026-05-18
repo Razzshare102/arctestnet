@@ -7,7 +7,6 @@
 import { useAccount, useBalance } from 'wagmi'
 import { motion } from 'framer-motion'
 import {
-  Wallet,
   TrendingUp,
   Image,
   Activity,
@@ -21,7 +20,7 @@ import toast from 'react-hot-toast'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { StatCard } from '@/components/ui/StatCard'
 import { ConnectPrompt } from '@/components/ui/ConnectPrompt'
-import { Skeleton, SkeletonCard } from '@/components/ui/Skeleton'
+import { Skeleton } from '@/components/ui/Skeleton'
 import { ARC_TOKENS, type TokenSymbol, addressUrl } from '@/lib/arcKit'
 import { shortenAddress, formatUSD, formatNumber, copyToClipboard, getSwapHistory } from '@/lib/utils'
 import { arcTestnet } from '@/lib/wagmi'

@@ -14,10 +14,9 @@ import {
   Menu,
   X,
   Zap,
-  ExternalLink,
   Twitter,
 } from 'lucide-react'
-import { cn, shortenAddress, formatNumber } from '@/lib/utils'
+import { cn, formatNumber } from '@/lib/utils'
 import { arcTestnet } from '@/lib/wagmi'
 
 const mobileNavLinks = [

@@ -5,25 +5,23 @@
  */
 
 import { useState, useCallback } from 'react'
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
+import { useAccount, useWriteContract } from 'wagmi'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useDropzone } from 'react-dropzone'
 import {
   Upload,
   Image as ImageIcon,
   Loader2,
-  CheckCircle2,
   Sparkles,
   Eye,
   ExternalLink,
-  RefreshCw,
   X,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { ConnectPrompt } from '@/components/ui/ConnectPrompt'
 import { TxModal, type TxStatus } from '@/components/ui/TxModal'
-import { Skeleton, SkeletonNFTCard } from '@/components/ui/Skeleton'
+import { Skeleton } from '@/components/ui/Skeleton'
 import { SHARESWAP_NFT_ABI, NFT_CONTRACT_ADDRESS, buildNFTMetadata } from '@/lib/nftContract'
 import { txUrl } from '@/lib/arcKit'
 import { shortenAddress } from '@/lib/utils'

@@ -28,7 +28,6 @@ export const metadata: Metadata = {
     description: 'Trade stablecoins, mint NFTs, and explore the ARC ecosystem.',
     creator: '@Razzshares',
   },
-  themeColor: '#0A0B0F',
 }
 
 export default function RootLayout({

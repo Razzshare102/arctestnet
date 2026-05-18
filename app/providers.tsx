@@ -44,7 +44,6 @@ export function Providers({ children }: ProvidersProps) {
             fontStack: 'system',
             overlayBlur: 'large',
           })}
-          coolMode
         >
           {children}
 
